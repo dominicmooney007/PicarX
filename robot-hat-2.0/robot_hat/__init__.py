@@ -17,6 +17,11 @@ from .utils import *
 from .robot import Robot
 from .version import __version__
 
+try:
+    from .ai_camera import AICamera, Detection
+except ImportError:
+    pass  # picamera2 not available (dev machine or no AI Camera)
+
 from .device import Devices
 __device__ = Devices()
 

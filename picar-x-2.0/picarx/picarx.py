@@ -32,12 +32,14 @@ class Picarx(object):
     # grayscale_pins: 3 adc channels
     # ultrasonic_pins: trig, echo2
     # config: path of config file
-    def __init__(self, 
-                servo_pins:list=['P0', 'P1', 'P2'], 
+    def __init__(self,
+                servo_pins:list=['P0', 'P1', 'P2'],
                 motor_pins:list=['D4', 'D5', 'P13', 'P12'],
                 grayscale_pins:list=['A0', 'A1', 'A2'],
                 ultrasonic_pins:list=['D2','D3'],
                 config:str=CONFIG,
+                ai_camera=None,
+                ai_model:str='ssd_mobilenet',
                 ):
 
         # reset robot_hat
@@ -91,6 +93,14 @@ class Picarx(object):
         # --------- ultrasonic init ---------
         trig, echo= ultrasonic_pins
         self.ultrasonic = Ultrasonic(Pin(trig), Pin(echo, mode=Pin.IN, pull=Pin.PULL_DOWN))
+
+        # --------- AI camera init (optional) ---------
+        self._ai_camera = None
+        if ai_camera is True:
+            from robot_hat import AICamera
+            self._ai_camera = AICamera(model=ai_model)
+        elif ai_camera is not None and ai_camera is not False:
+            self._ai_camera = ai_camera
         
     def set_motor_speed(self, motor, speed):
         ''' set motor speed
@@ -249,6 +259,86 @@ class Picarx(object):
             self.config_flie.set("cliff_reference", self.cliff_reference)
         else:
             raise ValueError("grayscale reference must be a 1*3 list")
+
+    # --------- AI Camera convenience methods ---------
+
+    @property
+    def ai_camera(self):
+        '''Get the AICamera instance, or None if not configured.'''
+        return self._ai_camera
+
+    def ai_camera_start(self, show_preview=False):
+        '''Start the AI camera inference loop.'''
+        if self._ai_camera is None:
+            raise RuntimeError("AI Camera not configured. Pass ai_camera=True or an AICamera instance to Picarx()")
+        self._ai_camera.start(show_preview=show_preview)
+
+    def ai_camera_stop(self):
+        '''Stop the AI camera inference loop.'''
+        if self._ai_camera is not None:
+            self._ai_camera.stop()
+
+    def track_object(self, label='person', speed_factor=0.15):
+        '''
+        Move pan/tilt servos to track a detected object.
+
+        Call this in a loop for continuous tracking.
+
+        param label: Object label to track (default 'person')
+        param speed_factor: How aggressively to track (0.0-1.0)
+        returns: True if object is being tracked, False if not detected
+        '''
+        if self._ai_camera is None:
+            return False
+        det = self._ai_camera.get_largest_detection(label)
+        if det is None:
+            return False
+
+        cx, cy = det.center
+        # Calculate offset from center (-1 to +1)
+        x_offset = (cx - self._ai_camera.FRAME_WIDTH / 2) / (self._ai_camera.FRAME_WIDTH / 2)
+        y_offset = (cy - self._ai_camera.FRAME_HEIGHT / 2) / (self._ai_camera.FRAME_HEIGHT / 2)
+
+        # Update pan/tilt angles
+        pan_delta = x_offset * speed_factor * (self.CAM_PAN_MAX - self.CAM_PAN_MIN)
+        tilt_delta = -y_offset * speed_factor * (self.CAM_TILT_MAX - self.CAM_TILT_MIN)
+
+        current_pan = getattr(self, '_track_pan', 0)
+        current_tilt = getattr(self, '_track_tilt', 0)
+        current_pan += pan_delta
+        current_tilt += tilt_delta
+        current_pan = constrain(current_pan, self.CAM_PAN_MIN, self.CAM_PAN_MAX)
+        current_tilt = constrain(current_tilt, self.CAM_TILT_MIN, self.CAM_TILT_MAX)
+        self._track_pan = current_pan
+        self._track_tilt = current_tilt
+
+        self.set_cam_pan_angle(current_pan)
+        self.set_cam_tilt_angle(current_tilt)
+        return True
+
+    def follow_object(self, label='person', speed=30, steer_gain=1.0):
+        '''
+        Drive toward a detected object by steering and moving forward.
+
+        Call this in a loop for continuous following.
+
+        param label: Object label to follow (default 'person')
+        param speed: Forward speed (0-100)
+        param steer_gain: Steering sensitivity multiplier
+        returns: True if following an object, False if not detected
+        '''
+        if self._ai_camera is None:
+            return False
+        det = self._ai_camera.get_largest_detection(label)
+        if det is None:
+            self.stop()
+            return False
+
+        x_offset, _ = self._ai_camera.get_object_center_offset(label)
+        steer_angle = x_offset * self.DIR_MAX * steer_gain
+        self.set_dir_servo_angle(steer_angle)
+        self.forward(speed)
+        return True
 
     def reset(self):
         self.stop()

@@ -23,6 +23,9 @@ dependencies = [
 
 ]
 
+[project.optional-dependencies]
+ai_camera = ["picamera2>=0.3.17", "numpy>=1.24"]
+
 [project.scripts]
 robot_hat = "robot_hat:__main__"
 
