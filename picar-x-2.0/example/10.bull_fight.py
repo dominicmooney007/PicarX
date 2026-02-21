@@ -10,7 +10,7 @@ def clamp_number(num,a,b):
 
 def main():
     Vilib.camera_start()
-    Vilib.display()
+    Vilib.display(local=False, web=True)
     Vilib.color_detect("red")
     speed = 50
     dir_angle=0

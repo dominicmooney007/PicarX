@@ -9,7 +9,7 @@ def clamp_number(num,a,b):
 
 def main():
     Vilib.camera_start()
-    Vilib.display()
+    Vilib.display(local=False, web=True)
     Vilib.face_detect_switch(True)
     x_angle =0
     y_angle =0
